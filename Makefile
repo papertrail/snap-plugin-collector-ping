@@ -1,3 +1,5 @@
+.PHONY: pkg
+
 default:
 	$(MAKE) deps
 	$(MAKE) all
@@ -9,4 +11,6 @@ deps:
 check:
 	$(MAKE) test
 all:
-	bash -c "./scripts/build.sh $(shell dirname $(realpath $(lastword $(MAKEFILE_LIST))))"
+	bash -c "./scripts/build.sh $(shell dirname $(realpath $(lastword $(MAKEFILE_LIST)))) code"
+pkg:
+	bash -c "./scripts/build.sh $(shell dirname $(realpath $(lastword $(MAKEFILE_LIST)))) pkg"
