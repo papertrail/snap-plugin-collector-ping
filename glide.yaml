@@ -1,0 +1,11 @@
+package: github.com/raintank/snap-plugin-collector-ping
+import:
+- package: github.com/intelsdi-x/snap-plugin-lib-go
+  subpackages:
+  - v1/plugin
+- package: github.com/raintank/go-pinger
+testImport:
+- package: github.com/smartystreets/goconvey
+  version: 1.6.3
+  subpackages:
+  - convey
