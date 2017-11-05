@@ -65,7 +65,7 @@ elif [ "$build_type" = "pkg" ]; then
     -n ${PLUGIN} \
     -m "Papertrail <support@papertrailapp.com>" \
     -v ${VERNUM} \
-    -d "snap-telemetry|appoptics-snaptel" \
+    -d "snap-telemetry" \
     --license "Apache" \
     --url "https://www.papertrail.com" \
     --description "Ping plugin for the Intel snap agent" \
