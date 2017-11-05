@@ -37,6 +37,12 @@ func (p *Ping) CollectMetrics(mts []plugin.Metric) ([]plugin.Metric, error) {
 	var err error
 
 	cfg := mts[0].Config
+
+	name, err := cfg.GetString("name")
+	if err != nil || name == "" {
+		return nil, fmt.Errorf("metric name required")
+	}
+
 	hostname, err := cfg.GetString("hostname")
 	if err != nil || hostname == "" {
 		return nil, fmt.Errorf("hostname missing from config, %v", cfg)
@@ -46,6 +52,7 @@ func (p *Ping) CollectMetrics(mts []plugin.Metric) ([]plugin.Metric, error) {
 	if err != nil || timeout == 0 {
 		timeout = 10.0
 	}
+
 	count, err := cfg.GetInt("count")
 	maxIntVal := int64((^uint(0)) >> 1)
 	if err == nil && count > maxIntVal {
@@ -55,7 +62,7 @@ func (p *Ping) CollectMetrics(mts []plugin.Metric) ([]plugin.Metric, error) {
 		count = 5
 	}
 
-	metrics, err := ping(hostname, int(count), timeout, mts)
+	metrics, err := ping(name, hostname, int(count), timeout, mts)
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +70,7 @@ func (p *Ping) CollectMetrics(mts []plugin.Metric) ([]plugin.Metric, error) {
 	return metrics, nil
 }
 
-func ping(host string, count int, timeout float64, mts []plugin.Metric) ([]plugin.Metric, error) {
+func ping(name string, host string, count int, timeout float64, mts []plugin.Metric) ([]plugin.Metric, error) {
 	check, err := NewRaintankPingProbe(host, count, timeout)
 	if err != nil {
 		return nil, err
@@ -95,11 +102,15 @@ func ping(host string, count int, timeout float64, mts []plugin.Metric) ([]plugi
 
 	metrics := make([]plugin.Metric, 0, len(stats))
 	for i, m := range mts {
-		stat := m.Namespace[2].Value
+		stat := m.Namespace[3].Value
 		if value, ok := stats[stat]; ok {
+			ns := plugin.CopyNamespace(m.Namespace)
+			ns[2].Value = name
+
 			mts[i].Data = value
 			mts[i].Timestamp = runTime
-			// TODO: Namespace_: core.NewNamespace("raintank", "ping", stat),
+			mts[i].Namespace = ns
+
 			metrics = append(metrics, mts[i])
 		}
 	}
@@ -112,7 +123,7 @@ func (p *Ping) GetMetricTypes(cfg plugin.Config) ([]plugin.Metric, error) {
 	mts := []plugin.Metric{}
 	for _, metricName := range metricNames {
 		mts = append(mts, plugin.Metric{
-			Namespace: plugin.NewNamespace("raintank", "ping", metricName),
+			Namespace: plugin.NewNamespace("raintank", "ping", "endpoint_name", metricName),
 		})
 	}
 	return mts, nil
