@@ -4,10 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/intelsdi-x/snap/control/plugin"
-	"github.com/intelsdi-x/snap/control/plugin/cpolicy"
-	"github.com/intelsdi-x/snap/core"
-	"github.com/intelsdi-x/snap/core/ctypes"
+	"github.com/intelsdi-x/snap-plugin-lib-go/v1/plugin"
 )
 
 const (
@@ -15,14 +12,9 @@ const (
 	Name = "ping"
 	// Version of plugin
 	Version = 1
-	// Type of plugin
-	Type = plugin.CollectorPluginType
 )
 
 var (
-	// make sure that we actually satisify requierd interface
-	_ plugin.CollectorPlugin = (*Ping)(nil)
-
 	metricNames = []string{
 		"avg",
 		"min",
@@ -41,30 +33,36 @@ func New() *Ping {
 }
 
 // CollectMetrics collects metrics for testing
-func (p *Ping) CollectMetrics(mts []plugin.MetricType) ([]plugin.MetricType, error) {
+func (p *Ping) CollectMetrics(mts []plugin.Metric) ([]plugin.Metric, error) {
 	var err error
 
-	conf := mts[0].Config().Table()
-	hostname, ok := conf["hostname"]
-	if !ok || hostname.(ctypes.ConfigValueStr).Value == "" {
-		return nil, fmt.Errorf("hostname missing from config, %v", conf)
-	}
-	var timeout float64
-	timeoutConf, ok := conf["timeout"]
-	if !ok || timeoutConf.(ctypes.ConfigValueFloat).Value == 0 {
-		timeout = 10.0
-	} else {
-		timeout = timeoutConf.(ctypes.ConfigValueFloat).Value
-	}
-	var count int
-	countConf, ok := conf["count"]
-	if !ok || countConf.(ctypes.ConfigValueInt).Value == 0 {
-		count = 5
-	} else {
-		count = countConf.(ctypes.ConfigValueInt).Value
+	cfg := mts[0].Config
+
+	name, err := cfg.GetString("name")
+	if err != nil || name == "" {
+		return nil, fmt.Errorf("metric name required")
 	}
 
-	metrics, err := ping(hostname.(ctypes.ConfigValueStr).Value, count, timeout, mts)
+	hostname, err := cfg.GetString("hostname")
+	if err != nil || hostname == "" {
+		return nil, fmt.Errorf("hostname missing from config, %v", cfg)
+	}
+
+	timeout, err := cfg.GetFloat("timeout")
+	if err != nil || timeout == 0 {
+		timeout = 10.0
+	}
+
+	count, err := cfg.GetInt("count")
+	maxIntVal := int64((^uint(0)) >> 1)
+	if err == nil && count > maxIntVal {
+		return nil, fmt.Errorf("count exceeds %v", maxIntVal)
+	}
+	if err != nil || count == 0 {
+		count = 5
+	}
+
+	metrics, err := ping(name, hostname, int(count), timeout, mts)
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +70,7 @@ func (p *Ping) CollectMetrics(mts []plugin.MetricType) ([]plugin.MetricType, err
 	return metrics, nil
 }
 
-func ping(host string, count int, timeout float64, mts []plugin.MetricType) ([]plugin.MetricType, error) {
+func ping(name string, host string, count int, timeout float64, mts []plugin.Metric) ([]plugin.Metric, error) {
 	check, err := NewRaintankPingProbe(host, count, timeout)
 	if err != nil {
 		return nil, err
@@ -102,17 +100,18 @@ func ping(host string, count int, timeout float64, mts []plugin.MetricType) ([]p
 		stats["loss"] = *result.Loss
 	}
 
-	metrics := make([]plugin.MetricType, 0, len(stats))
-	for _, m := range mts {
-		stat := m.Namespace()[2].Value
+	metrics := make([]plugin.Metric, 0, len(stats))
+	for i, m := range mts {
+		stat := m.Namespace[3].Value
 		if value, ok := stats[stat]; ok {
-			mt := plugin.MetricType{
-				Data_:      value,
-				Namespace_: core.NewNamespace("raintank", "ping", stat),
-				Timestamp_: runTime,
-				Version_:   m.Version(),
-			}
-			metrics = append(metrics, mt)
+			ns := plugin.CopyNamespace(m.Namespace)
+			ns[2].Value = name
+
+			mts[i].Data = value
+			mts[i].Timestamp = runTime
+			mts[i].Namespace = ns
+
+			metrics = append(metrics, mts[i])
 		}
 	}
 
@@ -120,39 +119,22 @@ func ping(host string, count int, timeout float64, mts []plugin.MetricType) ([]p
 }
 
 //GetMetricTypes returns metric types for testing
-func (p *Ping) GetMetricTypes(cfg plugin.ConfigType) ([]plugin.MetricType, error) {
-	mts := []plugin.MetricType{}
+func (p *Ping) GetMetricTypes(cfg plugin.Config) ([]plugin.Metric, error) {
+	mts := []plugin.Metric{}
 	for _, metricName := range metricNames {
-		mts = append(mts, plugin.MetricType{
-			Namespace_: core.NewNamespace("raintank", "ping", metricName),
+		mts = append(mts, plugin.Metric{
+			Namespace: plugin.NewNamespace("raintank", "ping", "endpoint_name", metricName),
 		})
 	}
 	return mts, nil
 }
 
 //GetConfigPolicy returns a ConfigPolicyTree for testing
-func (p *Ping) GetConfigPolicy() (*cpolicy.ConfigPolicy, error) {
-	c := cpolicy.New()
-	rule0, _ := cpolicy.NewStringRule("hostname", true)
-	rule1, _ := cpolicy.NewFloatRule("timeout", false, 10.0)
-	rule2, _ := cpolicy.NewIntegerRule("count", false, 5)
-	cp := cpolicy.NewPolicyNode()
-	cp.Add(rule0)
-	cp.Add(rule1)
-	cp.Add(rule2)
-	c.Add([]string{"raintank", "ping"}, cp)
-	return c, nil
-}
+func (p *Ping) GetConfigPolicy() (plugin.ConfigPolicy, error) {
+	policy := plugin.NewConfigPolicy()
+	policy.AddNewStringRule([]string{"raintank", "ping"}, "hostname", true)
+	policy.AddNewFloatRule([]string{"raintank", "ping"}, "timeout", false, plugin.SetMaxFloat(10.0), plugin.SetMinFloat(0.0))
+	policy.AddNewIntRule([]string{"raintank", "ping"}, "count", false, plugin.SetMaxInt(5), plugin.SetMinInt(0))
 
-//Meta returns meta data for testing
-func Meta() *plugin.PluginMeta {
-	return plugin.NewPluginMeta(
-		Name,
-		Version,
-		Type,
-		[]string{plugin.SnapGOBContentType},
-		[]string{plugin.SnapGOBContentType},
-		plugin.Unsecure(true),
-		plugin.ConcurrencyCount(5000),
-	)
+	return *policy, nil
 }
