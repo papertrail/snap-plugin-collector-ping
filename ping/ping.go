@@ -54,7 +54,7 @@ func (p *Ping) CollectMetrics(mts []plugin.Metric) ([]plugin.Metric, error) {
 	}
 
 	count, err := cfg.GetInt("count")
-	maxIntVal := int64((^uint(0)) >> 1)
+	maxIntVal := int64((^int(0)) >> 1)
 	if err == nil && count > maxIntVal {
 		return nil, fmt.Errorf("count exceeds %v", maxIntVal)
 	}
